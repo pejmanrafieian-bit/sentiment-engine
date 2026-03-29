@@ -1,6 +1,4 @@
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-feedparser==6.0.10
-numpy==1.24.3
-setuptools==68.2.2
-wheel==0.41.2
+fastapi
+uvicorn
+feedparser
+numpy

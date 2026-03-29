@@ -7,13 +7,7 @@ import numpy as np
 import re
 import urllib.request
 import ssl
-from threading import Lock
-from copy import deepcopy
-import os
 
-# -----------------------------
-# GLOBAL VARIABLES
-# -----------------------------
 app = FastAPI()
 
 SYMBOLS = [
@@ -22,17 +16,12 @@ SYMBOLS = [
     "EURGBP", "EURJPY", "GBPJPY", "AUDJPY", "CADJPY", "EURCHF", "GBPCHF",
 ]
 
-# Thread-safe sentiment store with lock
-sentiment_lock = Lock()
-sentiment_store: dict[str, dict] = {
+sentiment_store = {
     sym: {"score": 0.0, "label": "neutral", "headlines_analyzed": 0,
           "last_updated": None, "last_error": None}
     for sym in SYMBOLS
 }
 
-# -----------------------------
-# RSS FEEDS
-# -----------------------------
 RSS_FEEDS = [
     "https://www.kitco.com/rss/kitconews.rss",
     "https://feeds.marketwatch.com/marketwatch/topstories/",
@@ -56,19 +45,13 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
 }
 
-# SSL context with verification disabled for free RSS feeds (acceptable for public data)
 SSL_CTX = ssl.create_default_context()
 SSL_CTX.check_hostname = False
 SSL_CTX.verify_mode = ssl.CERT_NONE
 
-# -----------------------------
-# SYMBOL CONFIG - COMPLETE WITH ALL 17 SYMBOLS
-# -----------------------------
-SYMBOL_CONFIG: dict[str, dict] = {
-
+SYMBOL_CONFIG = {
     "XAUUSD": {
-        "keywords": ["gold", "xau", "bullion", "precious metal", "yellow metal", "safe haven metal", "xauusd"],
-        "base": "xau", "quote": "usd",
+        "keywords": ["gold", "xau", "bullion", "precious metal", "yellow metal", "xauusd"],
         "base_strong": [
             "gold demand rises", "demand for gold", "investors buy gold", "flee to gold",
             "flock to gold", "gold buying", "gold outperforms", "gold shines",
@@ -77,18 +60,15 @@ SYMBOL_CONFIG: dict[str, dict] = {
         ],
         "base_weak": [
             "gold loses appeal", "gold selling", "gold under pressure", "gold weakens",
-            "gold outlook negative", "investors dump gold", "gold shunned",
-            "gold loses shine", "gold unattractive",
+            "gold outlook negative", "investors dump gold", "gold shunned", "gold loses shine",
         ],
         "quote_strong": [
             "dollar strengthens", "dollar surges", "dollar rallies", "greenback rises",
-            "usd gains", "dollar dominates", "dollar buying", "strong dollar",
-            "dollar outperforms", "dollar climbs", "greenback advances",
+            "usd gains", "strong dollar", "dollar outperforms", "dollar climbs",
         ],
         "quote_weak": [
             "dollar weakens", "dollar falls", "dollar drops", "greenback slides",
-            "usd declines", "dollar selling", "weak dollar", "dollar under pressure",
-            "dollar loses ground", "greenback retreats",
+            "usd declines", "weak dollar", "dollar under pressure", "greenback retreats",
         ],
         "pair_up": [
             "gold rises", "gold gains", "gold surges", "gold rallies", "gold jumps",
@@ -100,13 +80,10 @@ SYMBOL_CONFIG: dict[str, dict] = {
             "gold falls", "gold drops", "gold declines", "gold slides", "gold slips",
             "gold tumbles", "gold plunges", "gold lower", "gold down", "gold sinks",
             "xauusd falls", "xauusd lower", "bullion drops", "bullion falls",
-            "gold hits low", "gold breaks down",
         ],
     },
-
     "BTCUSD": {
-        "keywords": ["bitcoin", "btc", "crypto", "cryptocurrency", "digital currency", "btcusd", "btc/usd"],
-        "base": "btc", "quote": "usd",
+        "keywords": ["bitcoin", "btc", "crypto", "cryptocurrency", "digital currency", "btcusd"],
         "base_strong": [
             "bitcoin demand", "investors buy bitcoin", "institutional buying",
             "crypto adoption", "bitcoin etf inflows", "bitcoin accumulation",
@@ -116,7 +93,7 @@ SYMBOL_CONFIG: dict[str, dict] = {
         "base_weak": [
             "bitcoin selling", "crypto fear", "bitcoin regulation fears",
             "bitcoin etf outflows", "bitcoin dump", "crypto crash fears",
-            "bearish on bitcoin", "bitcoin pessimism", "bitcoin negative sentiment",
+            "bearish on bitcoin", "bitcoin pessimism",
         ],
         "quote_strong": [
             "dollar strengthens", "greenback rises", "usd gains", "strong dollar",
@@ -129,71 +106,61 @@ SYMBOL_CONFIG: dict[str, dict] = {
             "bitcoin jumps", "bitcoin climbs", "bitcoin higher", "bitcoin soars",
             "bitcoin up", "btc up", "btc rises", "btc gains", "btc higher",
             "crypto rally", "crypto rises", "crypto surges", "crypto gains",
-            "bitcoin breaks record", "bitcoin hits high", "bitcoin all time high",
+            "bitcoin breaks record", "bitcoin hits high",
         ],
         "pair_down": [
             "bitcoin falls", "bitcoin drops", "bitcoin declines", "bitcoin slides",
             "bitcoin tumbles", "bitcoin plunges", "bitcoin lower", "bitcoin down",
             "btc down", "btc falls", "btc drops", "btc lower",
-            "crypto selloff", "crypto falls", "crypto drops", "crypto lower",
-            "bitcoin crashes", "bitcoin hits low",
+            "crypto selloff", "crypto falls", "crypto drops", "bitcoin crashes",
         ],
     },
-
     "EURUSD": {
-        "keywords": ["eurusd", "eur/usd", "euro", "eur", "single currency"],
-        "base": "eur", "quote": "usd",
+        "keywords": ["eurusd", "eur/usd", "euro", "single currency"],
         "base_strong": [
             "euro gains strength", "euro gaining", "euro outperforms", "euro supported",
-            "demand for euro", "investors buy euro", "euro appeal", "bullish euro",
-            "euro zone growth", "ecb hawkish", "ecb rate hike", "euro zone strong",
-            "euro zone recovery", "euro positive", "eur strength",
+            "demand for euro", "bullish euro", "ecb hawkish", "ecb rate hike",
+            "euro zone growth", "euro zone strong", "euro zone recovery", "eur strength",
         ],
         "base_weak": [
             "euro loses ground", "euro under pressure", "euro weakening", "bearish euro",
             "euro zone recession", "ecb dovish", "ecb rate cut", "euro zone weak",
-            "euro zone slowdown", "euro negative", "eur weakness", "euro shunned",
+            "euro zone slowdown", "eur weakness", "euro shunned",
         ],
         "quote_strong": [
-            "dollar strengthens", "dollar surges", "dollar rallies", "greenback rises",
-            "usd gains", "dollar dominates", "strong dollar", "dollar outperforms",
-            "fed hawkish", "fed rate hike", "us economy strong",
+            "dollar strengthens", "dollar surges", "greenback rises", "usd gains",
+            "strong dollar", "fed hawkish", "fed rate hike", "us economy strong",
         ],
         "quote_weak": [
-            "dollar weakens", "dollar falls", "dollar drops", "greenback slides",
-            "usd declines", "weak dollar", "dollar under pressure", "fed dovish",
-            "fed rate cut", "us economy weak",
+            "dollar weakens", "dollar falls", "greenback slides", "usd declines",
+            "weak dollar", "fed dovish", "fed rate cut", "us economy weak",
         ],
         "pair_up": [
             "eurusd rises", "eurusd gains", "eurusd higher", "eurusd up",
-            "eurusd rallies", "eurusd climbs", "eurusd advances", "eurusd surges",
+            "eurusd rallies", "eurusd climbs", "eurusd surges",
             "euro rises against dollar", "euro gains against dollar",
             "euro higher vs dollar", "euro strengthens against dollar",
             "eur/usd rises", "eur/usd higher",
         ],
         "pair_down": [
             "eurusd falls", "eurusd drops", "eurusd lower", "eurusd down",
-            "eurusd slides", "eurusd declines", "eurusd slips", "eurusd weakens",
+            "eurusd slides", "eurusd declines", "eurusd slips",
             "euro falls against dollar", "euro drops against dollar",
             "euro lower vs dollar", "euro weakens against dollar",
             "eur/usd falls", "eur/usd lower",
         ],
     },
-
     "GBPUSD": {
-        "keywords": ["gbpusd", "gbp/usd", "pound", "sterling", "cable", "gbp", "british pound"],
-        "base": "gbp", "quote": "usd",
+        "keywords": ["gbpusd", "gbp/usd", "pound", "sterling", "cable", "british pound"],
         "base_strong": [
             "pound gains strength", "sterling outperforms", "pound supported",
-            "demand for pound", "bullish pound", "boe hawkish", "boe rate hike",
-            "uk economy strong", "uk growth", "pound positive", "gbp strength",
-            "investors buy pound", "pound appeal",
+            "bullish pound", "boe hawkish", "boe rate hike", "uk economy strong",
+            "uk growth", "gbp strength", "investors buy pound",
         ],
         "base_weak": [
             "pound loses ground", "sterling under pressure", "pound weakening",
             "bearish pound", "boe dovish", "boe rate cut", "uk economy weak",
-            "uk recession", "pound negative", "gbp weakness", "pound shunned",
-            "uk slowdown",
+            "uk recession", "gbp weakness", "pound shunned", "uk slowdown",
         ],
         "quote_strong": [
             "dollar strengthens", "greenback rises", "usd gains", "strong dollar",
@@ -206,8 +173,7 @@ SYMBOL_CONFIG: dict[str, dict] = {
         "pair_up": [
             "gbpusd rises", "gbpusd gains", "gbpusd higher", "gbpusd up",
             "pound rises", "sterling rises", "cable rises", "pound higher",
-            "sterling higher", "pound gains against dollar", "sterling gains",
-            "pound strengthens against dollar", "gbp/usd rises",
+            "sterling higher", "pound gains against dollar", "gbp/usd rises",
         ],
         "pair_down": [
             "gbpusd falls", "gbpusd drops", "gbpusd lower", "gbpusd down",
@@ -215,10 +181,8 @@ SYMBOL_CONFIG: dict[str, dict] = {
             "sterling lower", "pound weakens against dollar", "gbp/usd falls",
         ],
     },
-
     "USDJPY": {
         "keywords": ["usdjpy", "usd/jpy", "dollar yen", "yen", "jpy", "japanese yen"],
-        "base": "usd", "quote": "jpy",
         "base_strong": [
             "dollar strengthens", "greenback rises", "usd gains", "strong dollar",
             "fed hawkish", "fed rate hike", "us economy strong",
@@ -229,31 +193,27 @@ SYMBOL_CONFIG: dict[str, dict] = {
         ],
         "quote_strong": [
             "yen gains strength", "yen outperforms", "yen supported", "safe haven yen",
-            "demand for yen", "investors buy yen", "boj hawkish", "boj rate hike",
-            "yen appeal", "yen positive", "yen strengthening",
+            "demand for yen", "boj hawkish", "boj rate hike", "yen strengthening",
         ],
         "quote_weak": [
             "yen loses ground", "yen under pressure", "yen weakening",
-            "boj dovish", "boj keeps rates low", "yen negative", "yen weakness",
-            "yen shunned", "carry trade yen",
+            "boj dovish", "boj keeps rates low", "yen weakness", "carry trade yen",
         ],
         "pair_up": [
             "usdjpy rises", "usdjpy higher", "usdjpy up", "usdjpy climbs",
-            "dollar rises against yen", "dollar higher vs yen", "yen weakens",
-            "yen falls", "yen drops", "yen slides", "dollar yen higher",
+            "dollar rises against yen", "dollar higher vs yen",
+            "yen weakens", "yen falls", "yen drops", "yen slides",
             "usd/jpy rises",
         ],
         "pair_down": [
             "usdjpy falls", "usdjpy lower", "usdjpy down", "usdjpy drops",
-            "dollar falls against yen", "dollar lower vs yen", "yen strengthens",
-            "yen rises", "yen gains", "yen climbs", "dollar yen lower",
+            "dollar falls against yen", "dollar lower vs yen",
+            "yen strengthens", "yen rises", "yen gains", "yen climbs",
             "usd/jpy falls",
         ],
     },
-
     "USDCHF": {
         "keywords": ["usdchf", "usd/chf", "franc", "chf", "swiss franc", "swissie"],
-        "base": "usd", "quote": "chf",
         "base_strong": [
             "dollar strengthens", "greenback rises", "usd gains", "strong dollar",
             "fed hawkish", "fed rate hike",
@@ -264,40 +224,36 @@ SYMBOL_CONFIG: dict[str, dict] = {
         ],
         "quote_strong": [
             "franc gains", "safe haven franc", "franc outperforms", "franc supported",
-            "demand for franc", "investors buy franc", "snb hawkish",
-            "swiss economy strong", "franc positive", "franc strengthening",
+            "demand for franc", "snb hawkish", "franc strengthening",
             "risk off franc", "flight to safety franc",
         ],
         "quote_weak": [
             "franc weakens", "franc loses ground", "franc under pressure",
-            "snb dovish", "snb intervention", "franc negative", "franc weakness",
+            "snb dovish", "snb intervention", "franc weakness",
         ],
         "pair_up": [
             "usdchf rises", "usdchf higher", "usdchf up", "usdchf climbs",
             "dollar rises against franc", "franc weakens", "franc falls",
-            "franc drops", "usd/chf rises",
+            "usd/chf rises",
         ],
         "pair_down": [
             "usdchf falls", "usdchf lower", "usdchf down", "usdchf drops",
             "dollar falls against franc", "franc strengthens", "franc rises",
-            "franc gains", "usd/chf falls", "safe haven franc demand",
+            "usd/chf falls", "safe haven franc demand",
         ],
     },
-
     "AUDUSD": {
-        "keywords": ["audusd", "aud/usd", "aussie", "aud", "australian dollar", "australian"],
-        "base": "aud", "quote": "usd",
+        "keywords": ["audusd", "aud/usd", "aussie", "aud", "australian dollar"],
         "base_strong": [
             "aussie gains", "australian dollar gains", "aud outperforms",
             "rba hawkish", "rba rate hike", "australia economy strong",
             "china growth positive", "commodity prices rise", "iron ore rises",
-            "risk on aussie", "aussie supported", "aud positive",
+            "risk on aussie", "aussie supported",
         ],
         "base_weak": [
             "aussie loses ground", "australian dollar weakens", "aud under pressure",
             "rba dovish", "rba rate cut", "australia economy weak",
             "china slowdown", "commodity prices fall", "risk off aussie",
-            "aud negative", "aussie shunned",
         ],
         "quote_strong": [
             "dollar strengthens", "greenback rises", "usd gains", "strong dollar",
@@ -316,10 +272,8 @@ SYMBOL_CONFIG: dict[str, dict] = {
             "aud falls", "aud/usd falls", "aussie weakens",
         ],
     },
-
     "USDCAD": {
-        "keywords": ["usdcad", "usd/cad", "loonie", "cad", "canadian dollar", "canadian"],
-        "base": "usd", "quote": "cad",
+        "keywords": ["usdcad", "usd/cad", "loonie", "cad", "canadian dollar"],
         "base_strong": [
             "dollar strengthens", "greenback rises", "usd gains", "strong dollar",
             "fed hawkish", "fed rate hike",
@@ -331,37 +285,34 @@ SYMBOL_CONFIG: dict[str, dict] = {
         "quote_strong": [
             "loonie gains", "canadian dollar gains", "cad outperforms",
             "boc hawkish", "boc rate hike", "canada economy strong",
-            "oil prices rise", "crude rises", "loonie supported", "cad positive",
+            "oil prices rise", "crude rises", "loonie supported",
         ],
         "quote_weak": [
             "loonie loses ground", "canadian dollar weakens", "cad under pressure",
             "boc dovish", "boc rate cut", "canada economy weak",
-            "oil prices fall", "crude drops", "loonie falls", "cad negative",
+            "oil prices fall", "crude drops", "loonie falls",
         ],
         "pair_up": [
             "usdcad rises", "usdcad higher", "usdcad up", "usdcad climbs",
-            "dollar rises against cad", "loonie weakens", "loonie falls",
-            "canadian dollar weakens", "usd/cad rises",
+            "loonie weakens", "loonie falls", "canadian dollar weakens",
+            "usd/cad rises",
         ],
         "pair_down": [
             "usdcad falls", "usdcad lower", "usdcad down", "usdcad drops",
-            "dollar falls against cad", "loonie strengthens", "loonie rises",
-            "canadian dollar strengthens", "usd/cad falls",
+            "loonie strengthens", "loonie rises", "canadian dollar strengthens",
+            "usd/cad falls",
         ],
     },
-
     "NZDUSD": {
-        "keywords": ["nzdusd", "nzd/usd", "kiwi", "nzd", "new zealand dollar", "new zealand"],
-        "base": "nzd", "quote": "usd",
+        "keywords": ["nzdusd", "nzd/usd", "kiwi", "nzd", "new zealand dollar"],
         "base_strong": [
             "kiwi gains", "new zealand dollar gains", "nzd outperforms",
             "rbnz hawkish", "rbnz rate hike", "new zealand economy strong",
-            "kiwi supported", "nzd positive",
+            "kiwi supported",
         ],
         "base_weak": [
             "kiwi loses ground", "new zealand dollar weakens", "nzd under pressure",
-            "rbnz dovish", "rbnz rate cut", "new zealand economy weak",
-            "kiwi falls", "nzd negative",
+            "rbnz dovish", "rbnz rate cut", "new zealand economy weak", "kiwi falls",
         ],
         "quote_strong": [
             "dollar strengthens", "greenback rises", "usd gains", "strong dollar",
@@ -380,17 +331,15 @@ SYMBOL_CONFIG: dict[str, dict] = {
             "nzd falls", "nzd/usd falls",
         ],
     },
-
     "EURGBP": {
-        "keywords": ["eurgbp", "eur/gbp", "euro pound", "euro sterling", "euro vs pound", "euro against pound"],
-        "base": "eur", "quote": "gbp",
+        "keywords": ["eurgbp", "eur/gbp", "euro pound", "euro sterling"],
         "base_strong": [
             "euro outperforms pound", "euro gains vs pound", "ecb hawkish",
-            "euro zone strong", "euro positive", "eur strength",
+            "euro zone strong", "eur strength",
         ],
         "base_weak": [
             "euro loses to pound", "euro weakens vs pound", "ecb dovish",
-            "euro zone weak", "euro negative",
+            "euro zone weak",
         ],
         "quote_strong": [
             "pound outperforms euro", "sterling gains vs euro", "boe hawkish",
@@ -407,25 +356,22 @@ SYMBOL_CONFIG: dict[str, dict] = {
         ],
         "pair_down": [
             "eurgbp falls", "eurgbp lower", "eurgbp down",
-            "euro falls against pound", "euro drops against sterling",
-            "euro lower vs pound", "eur/gbp falls",
+            "euro falls against pound", "euro lower vs pound", "eur/gbp falls",
         ],
     },
-
     "EURJPY": {
-        "keywords": ["eurjpy", "eur/jpy", "euro yen", "euro vs yen", "euro against yen"],
-        "base": "eur", "quote": "jpy",
+        "keywords": ["eurjpy", "eur/jpy", "euro yen"],
         "base_strong": [
-            "euro outperforms yen", "euro gains vs yen", "ecb hawkish", "euro positive",
+            "euro outperforms yen", "euro gains vs yen", "ecb hawkish",
         ],
         "base_weak": [
-            "euro weakens vs yen", "ecb dovish", "euro negative",
+            "euro weakens vs yen", "ecb dovish",
         ],
         "quote_strong": [
-            "yen gains vs euro", "safe haven yen", "boj hawkish", "yen strengthening",
+            "yen gains vs euro", "safe haven yen", "boj hawkish",
         ],
         "quote_weak": [
-            "yen weakens vs euro", "boj dovish", "yen weakness",
+            "yen weakens vs euro", "boj dovish",
         ],
         "pair_up": [
             "eurjpy rises", "eurjpy higher", "eurjpy up",
@@ -436,22 +382,20 @@ SYMBOL_CONFIG: dict[str, dict] = {
             "euro falls against yen", "euro lower vs yen", "eur/jpy falls",
         ],
     },
-
     "GBPJPY": {
-        "keywords": ["gbpjpy", "gbp/jpy", "pound yen", "sterling yen", "pound vs yen"],
-        "base": "gbp", "quote": "jpy",
+        "keywords": ["gbpjpy", "gbp/jpy", "pound yen", "sterling yen"],
         "base_strong": [
             "pound outperforms yen", "sterling gains vs yen", "boe hawkish",
-            "uk economy strong", "gbp positive",
+            "uk economy strong",
         ],
         "base_weak": [
-            "pound weakens vs yen", "boe dovish", "uk economy weak", "gbp negative",
+            "pound weakens vs yen", "boe dovish", "uk economy weak",
         ],
         "quote_strong": [
-            "yen gains vs pound", "safe haven yen", "boj hawkish", "yen strengthening",
+            "yen gains vs pound", "safe haven yen", "boj hawkish",
         ],
         "quote_weak": [
-            "yen weakens vs pound", "boj dovish", "yen weakness",
+            "yen weakens vs pound", "boj dovish",
         ],
         "pair_up": [
             "gbpjpy rises", "gbpjpy higher", "gbpjpy up",
@@ -462,23 +406,20 @@ SYMBOL_CONFIG: dict[str, dict] = {
             "pound falls against yen", "sterling lower vs yen", "gbp/jpy falls",
         ],
     },
-
     "AUDJPY": {
-        "keywords": ["audjpy", "aud/jpy", "aussie yen", "australian yen", "aussie vs yen"],
-        "base": "aud", "quote": "jpy",
+        "keywords": ["audjpy", "aud/jpy", "aussie yen", "australian yen"],
         "base_strong": [
             "aussie outperforms yen", "aud gains vs yen", "rba hawkish",
             "risk on sentiment", "commodity prices rise",
         ],
         "base_weak": [
             "aussie weakens vs yen", "rba dovish", "risk off sentiment",
-            "commodity prices fall",
         ],
         "quote_strong": [
-            "yen gains vs aussie", "safe haven yen", "boj hawkish", "risk off yen",
+            "yen gains vs aussie", "safe haven yen", "boj hawkish",
         ],
         "quote_weak": [
-            "yen weakens vs aussie", "boj dovish", "risk on yen selling",
+            "yen weakens vs aussie", "boj dovish",
         ],
         "pair_up": [
             "audjpy rises", "audjpy higher", "audjpy up",
@@ -489,10 +430,8 @@ SYMBOL_CONFIG: dict[str, dict] = {
             "aussie drops vs yen", "aud lower vs yen", "aud/jpy falls",
         ],
     },
-
     "CADJPY": {
-        "keywords": ["cadjpy", "cad/jpy", "canadian yen", "loonie yen", "cad vs yen"],
-        "base": "cad", "quote": "jpy",
+        "keywords": ["cadjpy", "cad/jpy", "canadian yen", "loonie yen"],
         "base_strong": [
             "loonie gains vs yen", "cad outperforms yen", "boc hawkish", "oil rises",
         ],
@@ -514,13 +453,11 @@ SYMBOL_CONFIG: dict[str, dict] = {
             "cad drops vs yen", "loonie lower vs yen", "cad/jpy falls",
         ],
     },
-
     "EURCHF": {
-        "keywords": ["eurchf", "eur/chf", "euro franc", "euro swiss", "euro vs franc"],
-        "base": "eur", "quote": "chf",
+        "keywords": ["eurchf", "eur/chf", "euro franc", "euro swiss"],
         "base_strong": [
             "euro outperforms franc", "euro gains vs franc", "ecb hawkish",
-            "risk on euro", "euro zone strong",
+            "euro zone strong",
         ],
         "base_weak": [
             "euro weakens vs franc", "ecb dovish", "euro zone weak",
@@ -541,10 +478,8 @@ SYMBOL_CONFIG: dict[str, dict] = {
             "euro falls against franc", "eur/chf falls",
         ],
     },
-
     "GBPCHF": {
-        "keywords": ["gbpchf", "gbp/chf", "pound franc", "sterling franc", "pound vs franc"],
-        "base": "gbp", "quote": "chf",
+        "keywords": ["gbpchf", "gbp/chf", "pound franc", "sterling franc"],
         "base_strong": [
             "pound outperforms franc", "sterling gains vs franc", "boe hawkish",
             "uk economy strong",
@@ -553,8 +488,7 @@ SYMBOL_CONFIG: dict[str, dict] = {
             "pound weakens vs franc", "boe dovish", "uk economy weak",
         ],
         "quote_strong": [
-            "franc gains vs pound", "safe haven franc", "snb hawkish",
-            "flight to safety", "risk off",
+            "franc gains vs pound", "safe haven franc", "snb hawkish", "flight to safety",
         ],
         "quote_weak": [
             "franc weakens vs pound", "snb dovish",
@@ -570,7 +504,6 @@ SYMBOL_CONFIG: dict[str, dict] = {
     },
 }
 
-# General directional patterns
 BULLISH_PATTERNS = [re.compile(r"\b" + re.escape(w) + r"\b", re.IGNORECASE) for w in [
     "rises", "gains", "surges", "rallies", "jumps", "climbs", "advances",
     "higher", "soars", "strengthens", "breakout", "upside", "outperforms",
@@ -586,10 +519,7 @@ NEUTRAL_PATTERNS = [re.compile(r"\b" + re.escape(w) + r"\b", re.IGNORECASE) for 
 ]]
 
 
-# -----------------------------
-# RSS FETCHER
-# -----------------------------
-def fetch_feed(url: str) -> list[str]:
+def fetch_feed(url):
     try:
         req = urllib.request.Request(url, headers=HEADERS)
         with urllib.request.urlopen(req, context=SSL_CTX, timeout=10) as response:
@@ -603,204 +533,115 @@ def fetch_feed(url: str) -> list[str]:
         return []
 
 
-# -----------------------------
-# SMART SCORING ENGINE
-# -----------------------------
-def score_headline(text: str, symbol: str) -> float | None:
+def score_headline(text, symbol):
     cfg = SYMBOL_CONFIG.get(symbol)
     if cfg is None:
         return None
-
     t = text.lower()
-
     if not any(kw in t for kw in cfg["keywords"]):
         return None
-
     score = 0.0
-
-    # Tier 1: Explicit pair direction (weight 3)
     for phrase in cfg["pair_up"]:
         if phrase in t:
             score += 3.0
     for phrase in cfg["pair_down"]:
         if phrase in t:
             score -= 3.0
-
-    # Tier 2: Base currency strength/weakness (weight 2)
     for phrase in cfg.get("base_strong", []):
         if phrase in t:
             score += 2.0
     for phrase in cfg.get("base_weak", []):
         if phrase in t:
             score -= 2.0
-
-    # Tier 3: Quote currency strength/weakness inverted (weight 2)
     for phrase in cfg.get("quote_strong", []):
         if phrase in t:
             score -= 2.0
     for phrase in cfg.get("quote_weak", []):
         if phrase in t:
             score += 2.0
-
-    # Tier 4: General directional words (weight 1)
     for pat in BULLISH_PATTERNS:
         if pat.search(t):
             score += 1.0
     for pat in BEARISH_PATTERNS:
         if pat.search(t):
             score -= 1.0
-
-    # Tier 5: Neutral dampening
     for pat in NEUTRAL_PATTERNS:
         if pat.search(t):
             score *= 0.5
-
     return score
 
 
-# -----------------------------
-# BACKGROUND UPDATER
-# -----------------------------
 def update_all_sentiment():
-    # Get update interval from environment variable (default 300 seconds = 5 minutes)
-    update_interval = int(os.getenv("UPDATE_INTERVAL_SECONDS", 300))
-    
     while True:
         print("\n[sentiment] Fetching news...")
-        all_headlines: list[str] = []
-        
+        all_headlines = []
         for url in RSS_FEEDS:
             items = fetch_feed(url)
             print(f"  {len(items)} items from {url}")
             all_headlines.extend(items)
-            # Free memory
-            items = None
-
-        # Remove duplicates and limit to last 500 unique headlines to manage memory
-        all_headlines = list(dict.fromkeys(all_headlines))[:500]
+        all_headlines = list(dict.fromkeys(all_headlines))
         print(f"  Total unique items: {len(all_headlines)}")
-
         for symbol in SYMBOLS:
             try:
                 scores   = [score_headline(h, symbol) for h in all_headlines]
                 relevant = [s for s in scores if s is not None]
-
                 if relevant:
                     avg      = float(np.mean(relevant))
                     smoothed = float(np.tanh(avg / 3))
                     label    = "bullish" if smoothed > 0.1 else "bearish" if smoothed < -0.1 else "neutral"
-                    
-                    # Thread-safe update with lock
-                    with sentiment_lock:
-                        sentiment_store[symbol].update({
-                            "score": round(smoothed, 4), 
-                            "label": label,
-                            "headlines_analyzed": len(relevant),
-                            "last_updated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                            "last_error": None,
-                        })
+                    sentiment_store[symbol].update({
+                        "score": round(smoothed, 4), "label": label,
+                        "headlines_analyzed": len(relevant),
+                        "last_updated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                        "last_error": None,
+                    })
                     print(f"  {symbol}: {label} ({smoothed:.4f}) — {len(relevant)} headlines")
                 else:
-                    with sentiment_lock:
-                        sentiment_store[symbol].update({
-                            "score": 0.0, 
-                            "label": "neutral", 
-                            "headlines_analyzed": 0,
-                            "last_updated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                            "last_error": "No relevant headlines — defaulting to neutral",
-                        })
+                    sentiment_store[symbol].update({
+                        "score": 0.0, "label": "neutral", "headlines_analyzed": 0,
+                        "last_updated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                        "last_error": "No relevant headlines — defaulting to neutral",
+                    })
             except Exception as e:
-                with sentiment_lock:
-                    sentiment_store[symbol]["last_error"] = str(e)
+                sentiment_store[symbol]["last_error"] = str(e)
                 print(f"  {symbol}: ERROR — {e}")
-        
-        # Free memory before next iteration
-        all_headlines = None
-        
-        print(f"\n[sentiment] Next update in {update_interval} seconds...")
-        time.sleep(update_interval)
+        time.sleep(300)
 
 
-# Start background thread
-update_thread = threading.Thread(target=update_all_sentiment, daemon=True)
-update_thread.start()
+threading.Thread(target=update_all_sentiment, daemon=True).start()
 
 
-# -----------------------------
-# API ENDPOINTS
-# -----------------------------
 @app.get("/sentiment/{symbol}")
 def get_sentiment(symbol: str):
     clean = symbol.upper().strip()
-    
-    # Remove common MT4/MT5 suffixes
-    suffixes_to_remove = [".A", ".B", ".M", ".PRO", ".ECN", ".RAW", ".MICRO", ".MINI"]
-    for suffix in suffixes_to_remove:
+    for suffix in [".A", ".B", ".M", ".PRO", ".ECN", ".RAW", ".MICRO", ".MINI"]:
         if clean.endswith(suffix):
-            clean = clean[: -len(suffix)]
+            clean = clean[:-len(suffix)]
             break
-    
-    # Thread-safe read with deep copy
-    with sentiment_lock:
-        if clean not in sentiment_store:
-            return {
-                "error": f"Symbol '{symbol}' not supported.", 
-                "supported_symbols": SYMBOLS
-            }
-        data = deepcopy(sentiment_store[clean])
-    
+    if clean not in sentiment_store:
+        return {"error": f"Symbol '{symbol}' not supported.", "supported_symbols": SYMBOLS}
+    data = sentiment_store[clean]
     return {
         "symbol": clean,
-        "sentiment_score": data["score"],
-        "sentiment_label": data["label"],
+        "sentiment_score":    data["score"],
+        "sentiment_label":    data["label"],
         "headlines_analyzed": data["headlines_analyzed"],
-        "last_updated": data["last_updated"],
-        "last_error": data["last_error"],
+        "last_updated":       data["last_updated"],
+        "last_error":         data["last_error"],
     }
 
 
 @app.get("/health")
 def health():
-    with sentiment_lock:
-        # Return a copy of sentiment store summary
-        summary = {}
-        for sym, data in sentiment_store.items():
-            summary[sym] = {
-                "label": data["label"],
-                "last_updated": data["last_updated"],
-                "headlines_analyzed": data["headlines_analyzed"]
-            }
-    
-    return {
-        "status": "ok", 
-        "update_interval_seconds": int(os.getenv("UPDATE_INTERVAL_SECONDS", 300)),
-        "symbols_count": len(SYMBOLS),
-        "symbols": SYMBOLS,
-        "last_update_summary": summary
-    }
+    return {"status": "ok", "symbols": sentiment_store}
 
 
 @app.get("/")
 def root():
     return {
         "message": "Gold & Forex Sentiment Engine",
-        "version": "1.0.0",
         "supported_symbols": SYMBOLS,
-        "total_symbols": len(SYMBOLS),
-        "endpoints": [
-            "/sentiment/{symbol} - Get sentiment for specific symbol",
-            "/health - Check service health and status",
-            "/ - This help message"
-        ],
-        "example": "/sentiment/BTCUSD",
-        "note": "Suffixes like .A are automatically stripped - use base symbol name"
+        "endpoints": ["/sentiment/{symbol}", "/health"],
     }
 
 
-# -----------------------------
-# MAIN ENTRY POINT (for local development)
-# -----------------------------
-if __name__ == "__main__":
-    import uvicorn
-    port = int(os.getenv("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)

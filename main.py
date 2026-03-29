@@ -62,23 +62,7 @@ SSL_CTX.check_hostname = False
 SSL_CTX.verify_mode = ssl.CERT_NONE
 
 # -----------------------------
-# CURRENCY ALIASES
-# -----------------------------
-CURRENCY_ALIASES = {
-    "usd": ["dollar", "greenback", "buck", "usd", "us dollar", "american dollar"],
-    "eur": ["euro", "eur", "single currency", "european currency"],
-    "gbp": ["pound", "sterling", "cable", "gbp", "british pound", "quid"],
-    "jpy": ["yen", "jpy", "japanese yen"],
-    "chf": ["franc", "chf", "swiss franc", "swissie", "safe haven"],
-    "aud": ["aussie", "aud", "australian dollar", "australian"],
-    "cad": ["loonie", "cad", "canadian dollar", "canadian"],
-    "nzd": ["kiwi", "nzd", "new zealand dollar", "new zealand"],
-    "btc": ["bitcoin", "btc", "crypto", "cryptocurrency", "digital currency", "btcusd"],
-    "xau": ["gold", "xau", "bullion", "precious metal", "safe haven metal", "yellow metal"],
-}
-
-# -----------------------------
-# SYMBOL CONFIG
+# SYMBOL CONFIG - COMPLETE WITH ALL 17 SYMBOLS
 # -----------------------------
 SYMBOL_CONFIG: dict[str, dict] = {
 
@@ -749,7 +733,7 @@ update_thread.start()
 def get_sentiment(symbol: str):
     clean = symbol.upper().strip()
     
-    # Remove common MT4/MT5 suffixes (keep minimal for your EA)
+    # Remove common MT4/MT5 suffixes
     suffixes_to_remove = [".A", ".B", ".M", ".PRO", ".ECN", ".RAW", ".MICRO", ".MINI"]
     for suffix in suffixes_to_remove:
         if clean.endswith(suffix):
@@ -791,6 +775,7 @@ def health():
         "status": "ok", 
         "update_interval_seconds": int(os.getenv("UPDATE_INTERVAL_SECONDS", 300)),
         "symbols_count": len(SYMBOLS),
+        "symbols": SYMBOLS,
         "last_update_summary": summary
     }
 
@@ -801,11 +786,13 @@ def root():
         "message": "Gold & Forex Sentiment Engine",
         "version": "1.0.0",
         "supported_symbols": SYMBOLS,
+        "total_symbols": len(SYMBOLS),
         "endpoints": [
             "/sentiment/{symbol} - Get sentiment for specific symbol",
             "/health - Check service health and status",
             "/ - This help message"
         ],
+        "example": "/sentiment/BTCUSD",
         "note": "Suffixes like .A are automatically stripped - use base symbol name"
     }
 
